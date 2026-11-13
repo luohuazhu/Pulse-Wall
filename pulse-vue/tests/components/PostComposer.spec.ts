@@ -142,7 +142,14 @@ describe('PostComposer · 校验提示', () => {
 
 describe('PostComposer · 发布流程', () => {
   it('发布成功后写入 store、清空输入并聚焦输入框', async () => {
-    const created: Post = { id: 'srv-1', content: '第一条动态', createdAt: Date.now() }
+    const created: Post = {
+      id: 'srv-1',
+      content: '第一条动态',
+      createdAt: Date.now(),
+      likes: 0,
+      liked: false,
+      favorited: false,
+    }
     fetchMock.mockResolvedValueOnce(fakeResponse({ post: created }, 201))
     const { wrapper, input, button, submit, store, hint } = factory()
 

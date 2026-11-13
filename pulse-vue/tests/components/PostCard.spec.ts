@@ -45,3 +45,70 @@ describe('PostCard', () => {
     expect(text.html()).toContain('&lt;b&gt;')
   })
 })
+
+describe('PostCard · 点赞与收藏', () => {
+  it('默认渲染 0 个赞、未点赞、未收藏', () => {
+    const wrapper = factory({ id: 'p1', content: '动态', createdAt: NOW })
+
+    const like = wrapper.get('[data-action="like"]')
+    const favorite = wrapper.get('[data-action="favorite"]')
+
+    expect(like.get('.post__count').text()).toBe('0')
+    expect(like.attributes('aria-pressed')).toBe('false')
+    expect(like.attributes('aria-label')).toBe('点赞')
+    expect(favorite.attributes('aria-pressed')).toBe('false')
+    expect(favorite.attributes('aria-label')).toBe('收藏')
+  })
+
+  it('已点赞/已收藏时高亮并更新无障碍状态', () => {
+    const wrapper = factory({
+      id: 'p2',
+      content: '热门动态',
+      createdAt: NOW,
+      likes: 3,
+      liked: true,
+      favorited: true,
+    })
+
+    const like = wrapper.get('[data-action="like"]')
+    const favorite = wrapper.get('[data-action="favorite"]')
+
+    expect(like.classes()).toContain('is-active')
+    expect(like.attributes('aria-pressed')).toBe('true')
+    expect(like.get('.post__count').text()).toBe('3')
+    expect(like.attributes('aria-label')).toBe('点赞（3）')
+    expect(favorite.classes()).toContain('is-active')
+    expect(favorite.attributes('aria-label')).toBe('取消收藏')
+  })
+
+  it('点击按钮向父级抛出动态 id', async () => {
+    const wrapper = factory({ id: 'p3', content: '动态', createdAt: NOW })
+
+    await wrapper.get('[data-action="like"]').trigger('click')
+    await wrapper.get('[data-action="favorite"]').trigger('click')
+
+    expect(wrapper.emitted('toggle-like')).toEqual([['p3']])
+    expect(wrapper.emitted('toggle-favorite')).toEqual([['p3']])
+  })
+
+  it('请求在途时禁用按钮，失败提示通过 alert 播报', async () => {
+    const wrapper = mount(PostCard, {
+      props: {
+        post: { id: 'p4', content: '动态', createdAt: NOW, likes: 1, liked: true },
+        now: NOW,
+        pending: true,
+        error: '点赞失败，已恢复原状态',
+      },
+    })
+
+    const like = wrapper.get('[data-action="like"]')
+    expect(like.attributes('disabled')).toBeDefined()
+    expect(like.attributes('aria-busy')).toBe('true')
+
+    await like.trigger('click')
+    expect(wrapper.emitted('toggle-like')).toBeUndefined()
+
+    expect(wrapper.get('.post__action-error').attributes('role')).toBe('alert')
+    expect(wrapper.get('.post__action-error').text()).toBe('点赞失败，已恢复原状态')
+  })
+})

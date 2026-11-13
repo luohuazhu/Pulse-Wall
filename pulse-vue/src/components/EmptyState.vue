@@ -1,5 +1,16 @@
 <script setup lang="ts">
 import { MESSAGES } from '../constants'
+
+withDefaults(
+  defineProps<{
+    title?: string
+    text?: string
+  }>(),
+  {
+    title: MESSAGES.emptyTitle,
+    text: MESSAGES.emptyText,
+  },
+)
 </script>
 
 <template>
@@ -9,7 +20,7 @@ import { MESSAGES } from '../constants'
       <span class="bubble bubble--2"></span>
       <span class="bubble bubble--3"></span>
     </div>
-    <p class="empty-state__title">{{ MESSAGES.emptyTitle }}</p>
-    <p class="empty-state__text">{{ MESSAGES.emptyText }}</p>
+    <p class="empty-state__title">{{ title }}</p>
+    <p class="empty-state__text">{{ text }}</p>
   </div>
 </template>
