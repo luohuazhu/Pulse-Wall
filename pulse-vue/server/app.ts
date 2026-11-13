@@ -1,7 +1,11 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { validateContent } from '../src/utils/validation.ts'
-import { createMemoryPostRepository, type PostRepository } from './store.ts'
+import {
+  createMemoryPostRepository,
+  type InteractionResult,
+  type PostRepository,
+} from './store.ts'
 
 export type ApiErrorCode =
   | 'EMPTY'
@@ -26,6 +30,22 @@ const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
 
 /** 280 字中文最多约 1KB，8KB 足够且能挡住超大请求体 */
 const MAX_BODY_BYTES = 8 * 1024
+
+/** 动态不存在与路由不存在语义不同，单独给文案 */
+const POST_NOT_FOUND_MESSAGE = '动态不存在'
+
+function interactionHandler(action: (id: string) => InteractionResult) {
+  return (c: Context) => {
+    const result = action(c.req.param('id') ?? '')
+    if (!result.ok) {
+      return c.json(
+        { error: { code: 'NOT_FOUND', message: POST_NOT_FOUND_MESSAGE } },
+        404,
+      )
+    }
+    return c.json({ post: result.post })
+  }
+}
 
 export interface AppOptions {
   repository?: PostRepository
@@ -106,6 +126,12 @@ export function createApp(options: AppOptions = {}): Hono {
       return c.json({ post: repository.create(validation.content) }, 201)
     },
   )
+
+  // 幂等的点赞/收藏：PUT 置为已赞/已收藏，DELETE 取消
+  app.put('/api/posts/:id/like', interactionHandler((id) => repository.like(id)))
+  app.delete('/api/posts/:id/like', interactionHandler((id) => repository.unlike(id)))
+  app.put('/api/posts/:id/favorite', interactionHandler((id) => repository.favorite(id)))
+  app.delete('/api/posts/:id/favorite', interactionHandler((id) => repository.unfavorite(id)))
 
   app.notFound((c) =>
     c.json({ error: { code: 'NOT_FOUND', message: ERROR_MESSAGES.NOT_FOUND } }, 404),

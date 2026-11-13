@@ -49,7 +49,13 @@ npm run dev
 | --- | --- | --- |
 | `GET` | `/api/posts` | 返回 `{ "posts": Post[] }`，按 `createdAt` 倒序 |
 | `POST` | `/api/posts` | 请求体 `{ "content": string }`，成功返回 `201 { "post": Post }` |
+| `PUT` | `/api/posts/:id/like` | 点赞（幂等），返回 `200 { "post": Post }` |
+| `DELETE` | `/api/posts/:id/like` | 取消点赞（幂等，计数不会小于 0） |
+| `PUT` | `/api/posts/:id/favorite` | 收藏（幂等） |
+| `DELETE` | `/api/posts/:id/favorite` | 取消收藏（幂等） |
 | `GET` | `/api/health` | 健康检查，返回 `{ "ok": true }` |
+
+`Post` 结构：`{ id, content, createdAt, likes, liked, favorited }`。互动端点对不存在的 `id` 返回 `404 NOT_FOUND`（message 为「动态不存在」），且不会创建条目。
 
 错误统一为 `{ "error": { "code": string, "message": string } }`，`code` 取值：
 `EMPTY`、`TOO_LONG`、`INVALID_CONTENT`、`INVALID_JSON`（400）、
@@ -63,6 +69,8 @@ curl http://127.0.0.1:8787/api/posts
 curl -X POST http://127.0.0.1:8787/api/posts \
   -H 'content-type: application/json' \
   -d '{"content":"你好，Pulse"}'
+curl -X PUT http://127.0.0.1:8787/api/posts/<id>/like
+curl -X PUT http://127.0.0.1:8787/api/posts/<id>/favorite
 ```
 
 ## 目录结构

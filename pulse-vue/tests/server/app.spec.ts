@@ -55,6 +55,7 @@ describe('POST /api/posts · 成功路径', () => {
     expect(body.post.createdAt).toBe(1_700_000_000_000)
     expect(typeof body.post.id).toBe('string')
     expect(body.post.id.length).toBeGreaterThan(0)
+    expect(body.post).toMatchObject({ likes: 0, liked: false, favorited: false })
 
     const list = (await (await app.request('/api/posts')).json()) as { posts: unknown[] }
     expect(list.posts).toHaveLength(1)
@@ -215,6 +216,118 @@ describe('POST /api/posts · 请求体异常', () => {
   })
 })
 
+describe('PUT/DELETE /api/posts/:id · 点赞与收藏', () => {
+  function seededRepository() {
+    let id = 0
+    const repository = createMemoryPostRepository({
+      now: () => 1_700_000_000_000,
+      createId: () => `p${++id}`,
+    })
+    const post = repository.create('目标动态')
+    return { repository, post }
+  }
+
+  it('PUT like 返回 200 的完整动态，GET 列表同步可读', async () => {
+    const { repository, post } = seededRepository()
+    const { app } = createHarness(repository)
+
+    const response = await app.request(`/api/posts/${post.id}/like`, { method: 'PUT' })
+    const body = (await response.json()) as { post: { likes: number; liked: boolean } }
+
+    expect(response.status).toBe(200)
+    expect(body.post).toMatchObject({ likes: 1, liked: true, favorited: false })
+
+    const list = (await (await app.request('/api/posts')).json()) as {
+      posts: { likes: number; liked: boolean }[]
+    }
+    expect(list.posts[0]).toMatchObject({ likes: 1, liked: true })
+  })
+
+  it('重复 PUT like 幂等', async () => {
+    const { repository, post } = seededRepository()
+    const { app } = createHarness(repository)
+
+    const first = (await (await app.request(`/api/posts/${post.id}/like`, { method: 'PUT' })).json()) as {
+      post: { likes: number }
+    }
+    const second = (await (await app.request(`/api/posts/${post.id}/like`, { method: 'PUT' })).json()) as {
+      post: { likes: number }
+    }
+
+    expect(first.post.likes).toBe(1)
+    expect(second.post.likes).toBe(1)
+  })
+
+  it('DELETE like 与重复 DELETE 不会减成负数', async () => {
+    const { repository, post } = seededRepository()
+    const { app } = createHarness(repository)
+
+    await app.request(`/api/posts/${post.id}/like`, { method: 'PUT' })
+    await app.request(`/api/posts/${post.id}/like`, { method: 'DELETE' })
+    const response = await app.request(`/api/posts/${post.id}/like`, { method: 'DELETE' })
+    const body = (await response.json()) as { post: { likes: number; liked: boolean } }
+
+    expect(body.post).toMatchObject({ likes: 0, liked: false })
+  })
+
+  it('收藏 PUT/DELETE 幂等，且不影响点赞计数', async () => {
+    const { repository, post } = seededRepository()
+    const { app } = createHarness(repository)
+    const url = `/api/posts/${post.id}/favorite`
+
+    const on = (await (await app.request(url, { method: 'PUT' })).json()) as {
+      post: { favorited: boolean; likes: number }
+    }
+    const onAgain = (await (await app.request(url, { method: 'PUT' })).json()) as {
+      post: { favorited: boolean }
+    }
+    const off = (await (await app.request(url, { method: 'DELETE' })).json()) as {
+      post: { favorited: boolean }
+    }
+    const onFinal = (await (await app.request(url, { method: 'PUT' })).json()) as {
+      post: { favorited: boolean; likes: number }
+    }
+
+    expect(on.post).toMatchObject({ favorited: true, likes: 0 })
+    expect(onAgain.post.favorited).toBe(true)
+    expect(off.post.favorited).toBe(false)
+    expect(onFinal.post).toMatchObject({ favorited: true, likes: 0 })
+  })
+
+  it('未知 id 的四个端点都返回 404 且不新建条目', async () => {
+    const { repository } = seededRepository()
+    const { app } = createHarness(repository)
+    const before = repository.list()
+
+    const cases = [
+      ['/api/posts/missing/like', 'PUT'],
+      ['/api/posts/missing/like', 'DELETE'],
+      ['/api/posts/missing/favorite', 'PUT'],
+      ['/api/posts/missing/favorite', 'DELETE'],
+    ] as const
+
+    for (const [path, method] of cases) {
+      const response = await app.request(path, { method })
+      const body = (await response.json()) as ErrorBody
+
+      expect(response.status).toBe(404)
+      expect(body.error.code).toBe('NOT_FOUND')
+      expect(body.error.message).toBe('动态不存在')
+    }
+
+    expect(repository.list()).toEqual(before)
+  })
+
+  it('无请求体、无 Content-Type 的 PUT 也能成功（不触发 413/415）', async () => {
+    const { repository, post } = seededRepository()
+    const { app } = createHarness(repository)
+
+    const response = await app.request(`/api/posts/${post.id}/favorite`, { method: 'PUT' })
+
+    expect(response.status).toBe(200)
+  })
+})
+
 describe('路由与错误形状', () => {
   it('未知 API 路由返回 404 NOT_FOUND', async () => {
     const { app } = createHarness()
@@ -237,6 +350,18 @@ describe('路由与错误形状', () => {
         throw new Error('boom at store.ts:42')
       },
       create() {
+        throw new Error('boom at store.ts:42')
+      },
+      like() {
+        throw new Error('boom at store.ts:42')
+      },
+      unlike() {
+        throw new Error('boom at store.ts:42')
+      },
+      favorite() {
+        throw new Error('boom at store.ts:42')
+      },
+      unfavorite() {
         throw new Error('boom at store.ts:42')
       },
     }
