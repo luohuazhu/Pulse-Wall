@@ -13,12 +13,28 @@ export function isValidPost(value: unknown): value is PostLike {
   }
 
   // 上限 8.64e15 是 Date 可表示的最大时间戳，越界会让 toISOString() 抛 RangeError
-  return (
-    typeof item.createdAt === 'number' &&
-    Number.isFinite(item.createdAt) &&
-    item.createdAt >= 0 &&
-    item.createdAt <= 8.64e15
-  )
+  if (
+    typeof item.createdAt !== 'number' ||
+    !Number.isFinite(item.createdAt) ||
+    item.createdAt < 0 ||
+    item.createdAt > 8.64e15
+  ) {
+    return false
+  }
+
+  // 互动字段可缺失（旧数据），但出现时类型必须正确，避免 NaN/字符串污染计数
+  const { likes, liked, favorited } = item
+  if (likes !== undefined && (typeof likes !== 'number' || !Number.isInteger(likes) || likes < 0)) {
+    return false
+  }
+  if (liked !== undefined && typeof liked !== 'boolean') {
+    return false
+  }
+  if (favorited !== undefined && typeof favorited !== 'boolean') {
+    return false
+  }
+
+  return true
 }
 
 /** 正文校验：返回去除首尾空白后的内容，或错误码 */

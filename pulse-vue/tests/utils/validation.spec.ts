@@ -53,7 +53,16 @@ describe('isValidPost', () => {
     ['createdAt 是 Infinity', { content: '你好', createdAt: Number.POSITIVE_INFINITY }],
     ['createdAt 超出 Date 上限', { content: '你好', createdAt: 1e300 }],
     ['createdAt 为负数', { content: '你好', createdAt: -1 }],
+    ['likes 为负数', { content: '你好', createdAt: 1, likes: -1 }],
+    ['likes 非整数', { content: '你好', createdAt: 1, likes: 1.5 }],
+    ['likes 非数字', { content: '你好', createdAt: 1, likes: '2' }],
+    ['liked 非布尔', { content: '你好', createdAt: 1, liked: 'yes' }],
+    ['favorited 非布尔', { content: '你好', createdAt: 1, favorited: 1 }],
   ])('非法结构返回 false: %s', (_label, value) => {
     expect(isValidPost(value)).toBe(false)
+  })
+
+  it('携带合法互动字段时返回 true', () => {
+    expect(isValidPost({ ...valid, likes: 3, liked: true, favorited: false })).toBe(true)
   })
 })
