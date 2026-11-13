@@ -1,0 +1,14 @@
+# 系统与编辑器临时文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 编辑器配置
+.vscode/
+.idea/
+*.suo
+*.swp
+
+# 依赖与构建产物（本项目无构建流程，仅作占位）
+node_modules/
+dist/
