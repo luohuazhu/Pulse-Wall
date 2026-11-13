@@ -104,4 +104,58 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/posts')
   })
+
+  it('点赞成功：请求 PUT 子资源并更新计数', async () => {
+    const target: Post = {
+      id: 'b',
+      content: '可点赞的动态',
+      createdAt: NOW,
+      likes: 0,
+      liked: false,
+      favorited: false,
+    }
+    fetchMock.mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        return Promise.resolve(fakeResponse({ post: { ...target, likes: 1, liked: true } }))
+      }
+      return Promise.resolve(fakeResponse({ posts: [target] }))
+    })
+    const { wrapper } = factory()
+    await flushPromises()
+
+    await wrapper.get('[data-action="like"]').trigger('click')
+    await flushPromises()
+
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit]
+    expect(url).toBe('/api/posts/b/like')
+    expect(init.method).toBe('PUT')
+    expect(wrapper.get('.post__count').text()).toBe('1')
+    expect(wrapper.get('[data-testid="post-count"]').text()).toBe('1 条动态')
+  })
+
+  it('点赞失败：回滚计数并展示错误提示', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const target: Post = {
+      id: 'b',
+      content: '会失败的动态',
+      createdAt: NOW,
+      likes: 0,
+      liked: false,
+      favorited: false,
+    }
+    fetchMock.mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        return Promise.reject(new TypeError('Failed to fetch'))
+      }
+      return Promise.resolve(fakeResponse({ posts: [target] }))
+    })
+    const { wrapper } = factory()
+    await flushPromises()
+
+    await wrapper.get('[data-action="like"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.post__count').text()).toBe('0')
+    expect(wrapper.get('.post__action-error').text()).toBe(MESSAGES.likeFailed)
+  })
 })

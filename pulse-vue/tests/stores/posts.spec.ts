@@ -1,13 +1,27 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MAX_LENGTH } from '../../src/constants'
+import { MAX_LENGTH, MESSAGES } from '../../src/constants'
 import { usePostsStore } from '../../src/stores/posts'
 import type { Post } from '../../src/types'
 
 const NOW = new Date(2024, 4, 20, 12, 0, 0).getTime()
 
-const older: Post = { id: 'older', content: '更早的动态', createdAt: NOW - 120_000 }
-const newer: Post = { id: 'newer', content: '更新的动态', createdAt: NOW - 60_000 }
+const older: Post = {
+  id: 'older',
+  content: '更早的动态',
+  createdAt: NOW - 120_000,
+  likes: 0,
+  liked: false,
+  favorited: false,
+}
+const newer: Post = {
+  id: 'newer',
+  content: '更新的动态',
+  createdAt: NOW - 60_000,
+  likes: 0,
+  liked: false,
+  favorited: false,
+}
 
 function fakeResponse(body: unknown, status = 200): Response {
   return {
@@ -108,7 +122,14 @@ describe('posts store · addPost', () => {
 
   it('服务端创建成功时以服务端返回的数据插入顶部', async () => {
     const store = usePostsStore()
-    const created: Post = { id: 'srv-1', content: '新的动态', createdAt: NOW }
+    const created: Post = {
+      id: 'srv-1',
+      content: '新的动态',
+      createdAt: NOW,
+      likes: 0,
+      liked: false,
+      favorited: false,
+    }
     fetchMock.mockResolvedValueOnce(fakeResponse({ posts: [older] }))
     await store.load()
     fetchMock.mockClear()
@@ -211,5 +232,117 @@ describe('posts store · addPost', () => {
 
     expect(store.posts.map((post) => post.id)).toEqual(['newer', 'older'])
     expect(store.loadError).toBe(false)
+  })
+})
+
+describe('posts store · 点赞与收藏', () => {
+  const basePost: Post = {
+    id: 'p1',
+    content: '可互动的动态',
+    createdAt: NOW - 60_000,
+    likes: 2,
+    liked: false,
+    favorited: false,
+  }
+
+  function seeded() {
+    const store = usePostsStore()
+    store.posts = [{ ...basePost }]
+    return store
+  }
+
+  it('点赞先乐观 +1，再用服务端结果校正', async () => {
+    const store = seeded()
+    fetchMock.mockResolvedValueOnce(
+      fakeResponse({ post: { ...basePost, likes: 3, liked: true } }),
+    )
+
+    const result = store.toggleLike('p1')
+
+    expect(store.posts[0]).toMatchObject({ likes: 3, liked: true })
+    expect(store.isPending('p1')).toBe(true)
+
+    await expect(result).resolves.toBe(true)
+    expect(store.posts[0]).toMatchObject({ likes: 3, liked: true })
+    expect(store.isPending('p1')).toBe(false)
+    expect(store.interactionError).toBeNull()
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/posts/p1/like')
+    expect(init.method).toBe('PUT')
+  })
+
+  it('点赞失败回滚并给出可展示的错误文案', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const store = seeded()
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    await expect(store.toggleLike('p1')).resolves.toBe(false)
+
+    expect(store.posts[0]).toMatchObject({ likes: 2, liked: false })
+    expect(store.interactionError).toEqual({ id: 'p1', kind: 'like' })
+    expect(store.errorTextFor('p1')).toBe(MESSAGES.likeFailed)
+    expect(store.errorTextFor('other')).toBeNull()
+    expect(store.isPending('p1')).toBe(false)
+  })
+
+  it('取消点赞不会把计数减成负数', async () => {
+    const store = usePostsStore()
+    store.posts = [{ ...basePost, likes: 0, liked: true }]
+    fetchMock.mockResolvedValueOnce(fakeResponse({ post: { ...basePost, likes: 0, liked: false } }))
+
+    await store.toggleLike('p1')
+
+    expect(store.posts[0]).toMatchObject({ likes: 0, liked: false })
+  })
+
+  it('收藏不影响点赞计数，成功后清除旧错误', async () => {
+    const store = seeded()
+    store.interactionError = { id: 'p1', kind: 'like' }
+    fetchMock.mockResolvedValueOnce(
+      fakeResponse({ post: { ...basePost, favorited: true } }),
+    )
+
+    await expect(store.toggleFavorite('p1')).resolves.toBe(true)
+
+    expect(store.posts[0]).toMatchObject({ likes: 2, liked: false, favorited: true })
+    expect(store.interactionError).toBeNull()
+    expect((fetchMock.mock.calls[0] as [string, RequestInit])[0]).toBe('/api/posts/p1/favorite')
+  })
+
+  it('请求在途时忽略重复点击，只发一次请求', async () => {
+    const store = seeded()
+    let resolvePut!: (value: Response) => void
+    fetchMock.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => { resolvePut = resolve }),
+    )
+
+    const first = store.toggleLike('p1')
+    await expect(store.toggleLike('p1')).resolves.toBe(false)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(store.isPending('p1')).toBe(true)
+
+    resolvePut(fakeResponse({ post: { ...basePost, likes: 3, liked: true } }))
+    await expect(first).resolves.toBe(true)
+  })
+
+  it('在途互动期间到达的旧列表不会覆盖乐观状态', async () => {
+    const store = seeded()
+    let resolvePut!: (value: Response) => void
+    fetchMock.mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        return new Promise<Response>((resolve) => { resolvePut = resolve })
+      }
+      return Promise.resolve(fakeResponse({ posts: [{ ...basePost }] }))
+    })
+
+    const toggling = store.toggleLike('p1')
+    await store.load()
+
+    expect(store.posts[0]).toMatchObject({ likes: 3, liked: true })
+
+    resolvePut(fakeResponse({ post: { ...basePost, likes: 3, liked: true } }))
+    await toggling
   })
 })

@@ -2,8 +2,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPostsApi, PostsApiError } from '../../src/api/posts'
 import type { Post } from '../../src/types'
 
-const older: Post = { id: 'older', content: '更早的动态', createdAt: 1_700_000_000_000 }
-const newer: Post = { id: 'newer', content: '更新的动态', createdAt: 1_700_000_100_000 }
+const older: Post = {
+  id: 'older',
+  content: '更早的动态',
+  createdAt: 1_700_000_000_000,
+  likes: 0,
+  liked: false,
+  favorited: false,
+}
+const newer: Post = {
+  id: 'newer',
+  content: '更新的动态',
+  createdAt: 1_700_000_100_000,
+  likes: 0,
+  liked: false,
+  favorited: false,
+}
 
 /** 只实现 api 客户端真正用到的 Response 字段，避免依赖 jsdom 是否提供 Response */
 function fakeResponse(body: unknown, status = 200): Response {
@@ -118,7 +132,14 @@ describe('createPostsApi · list', () => {
 
 describe('createPostsApi · create', () => {
   it('POST JSON 请求体并返回服务端生成的动态', async () => {
-    const created: Post = { id: 'srv-1', content: '你好', createdAt: 1_700_000_200_000 }
+    const created: Post = {
+      id: 'srv-1',
+      content: '你好',
+      createdAt: 1_700_000_200_000,
+      likes: 0,
+      liked: false,
+      favorited: false,
+    }
     fetchMock.mockResolvedValue(fakeResponse({ post: created }, 201))
     const api = createPostsApi()
 
@@ -150,5 +171,80 @@ describe('createPostsApi · create', () => {
     const api = createPostsApi()
 
     await expect(api.create('你好')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  })
+})
+
+describe('createPostsApi · 点赞与收藏', () => {
+  const likedPost: Post = {
+    id: 'p1',
+    content: '你好',
+    createdAt: 1_700_000_000_000,
+    likes: 1,
+    liked: true,
+    favorited: false,
+  }
+
+  it('setLiked(true) 使用 PUT 且无请求体', async () => {
+    fetchMock.mockResolvedValue(fakeResponse({ post: likedPost }))
+    const api = createPostsApi()
+
+    await expect(api.setLiked('p 1', true)).resolves.toEqual(likedPost)
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/posts/p%201/like')
+    expect(init.method).toBe('PUT')
+    expect(init.body).toBeUndefined()
+  })
+
+  it('setLiked(false) 使用 DELETE', async () => {
+    fetchMock.mockResolvedValue(
+      fakeResponse({ post: { ...likedPost, likes: 0, liked: false } }),
+    )
+    const api = createPostsApi()
+
+    await api.setLiked('p1', false)
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/posts/p1/like')
+    expect(init.method).toBe('DELETE')
+  })
+
+  it('setFavorited 使用 favorite 子资源并返回收藏状态', async () => {
+    fetchMock.mockResolvedValue(fakeResponse({ post: { ...likedPost, favorited: true } }))
+    const api = createPostsApi()
+
+    const post = await api.setFavorited('p1', true)
+
+    expect(post.favorited).toBe(true)
+    expect((fetchMock.mock.calls[0] as [string, RequestInit])[0]).toBe('/api/posts/p1/favorite')
+    expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].method).toBe('PUT')
+  })
+
+  it('响应缺少互动字段时补齐默认值', async () => {
+    fetchMock.mockResolvedValue(
+      fakeResponse({ post: { id: 'p1', content: '旧数据', createdAt: 1 } }),
+    )
+    const api = createPostsApi()
+
+    await expect(api.setLiked('p1', true)).resolves.toEqual({
+      id: 'p1',
+      content: '旧数据',
+      createdAt: 1,
+      likes: 0,
+      liked: false,
+      favorited: false,
+    })
+  })
+
+  it('动态不存在时透传 404 NOT_FOUND', async () => {
+    fetchMock.mockResolvedValue(
+      fakeResponse({ error: { code: 'NOT_FOUND', message: '动态不存在' } }, 404),
+    )
+    const api = createPostsApi()
+
+    await expect(api.setFavorited('missing', true)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      status: 404,
+    })
   })
 })

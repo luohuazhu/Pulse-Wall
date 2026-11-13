@@ -25,4 +25,12 @@ export const MESSAGES = {
   timelineOrder: '最新在前',
   tagline: '动态墙 · 服务端存储',
   footer: 'Pulse · 数据保存在服务端内存中，服务重启后会清空',
+  likeLabel: '点赞',
+  likeFailed: '点赞失败，已恢复原状态',
+  favoriteLabel: '收藏',
+  unfavoriteLabel: '取消收藏',
+  favoriteFailed: '收藏失败，已恢复原状态',
+  filterFavorites: '只看收藏',
+  favoritesEmptyTitle: '还没有收藏',
+  favoritesEmptyText: '点亮动态里的书签，就能在这里快速找回',
 } as const

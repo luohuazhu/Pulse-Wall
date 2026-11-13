@@ -52,6 +52,10 @@ export interface PostsApi {
   list(): Promise<Post[]>
   /** 发布一条动态，内容已由调用方 trim */
   create(content: string): Promise<Post>
+  /** 设置点赞状态（幂等），返回服务端最新动态 */
+  setLiked(id: string, liked: boolean): Promise<Post>
+  /** 设置收藏状态（幂等），返回服务端最新动态 */
+  setFavorited(id: string, favorited: boolean): Promise<Post>
 }
 
 function normalizePost(value: unknown): Post | null {
@@ -61,7 +65,15 @@ function normalizePost(value: unknown): Post | null {
   if (typeof value.id !== 'string' || value.id === '') {
     return null
   }
-  return { id: value.id, content: value.content, createdAt: value.createdAt }
+  return {
+    id: value.id,
+    content: value.content,
+    createdAt: value.createdAt,
+    // 互动字段是后加的，旧响应/旧数据可能缺失，统一补齐默认值
+    likes: typeof value.likes === 'number' ? value.likes : 0,
+    liked: value.liked === true,
+    favorited: value.favorited === true,
+  }
 }
 
 function pickErrorCode(value: unknown): PostsApiErrorCode | null {
@@ -96,11 +108,20 @@ function readError(body: unknown, status: number): { code: PostsApiErrorCode; me
  */
 export function createPostsApi(baseUrl = ''): PostsApi {
   const endpoint = `${baseUrl}/api/posts`
+  const postPath = (id: string): string => `${endpoint}/${encodeURIComponent(id)}`
 
-  async function request(init?: RequestInit): Promise<unknown> {
+  function readPost(body: unknown, status: number): Post {
+    const post = normalizePost((body as { post?: unknown } | null)?.post)
+    if (!post) {
+      throw new PostsApiError('INVALID_RESPONSE', status, '响应格式不正确：缺少合法的 post')
+    }
+    return post
+  }
+
+  async function request(path: string, init?: RequestInit): Promise<unknown> {
     let response: Response
     try {
-      response = await fetch(endpoint, { ...init, signal: init?.signal ?? timeoutSignal() })
+      response = await fetch(path, { ...init, signal: init?.signal ?? timeoutSignal() })
     } catch (error) {
       const message =
         (error as Error)?.name === 'TimeoutError' || (error as Error)?.name === 'AbortError'
@@ -130,7 +151,7 @@ export function createPostsApi(baseUrl = ''): PostsApi {
 
   return {
     async list() {
-      const body = await request()
+      const body = await request(endpoint)
       const posts = (body as { posts?: unknown } | null)?.posts
       if (!Array.isArray(posts)) {
         throw new PostsApiError('INVALID_RESPONSE', 200, '响应格式不正确：缺少 posts 数组')
@@ -143,17 +164,24 @@ export function createPostsApi(baseUrl = ''): PostsApi {
     },
 
     async create(content) {
-      const body = await request({
+      const body = await request(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ content }),
       })
-      const post = normalizePost((body as { post?: unknown } | null)?.post)
-      if (!post) {
-        throw new PostsApiError('INVALID_RESPONSE', 201, '响应格式不正确：缺少合法的 post')
-      }
+      return readPost(body, 201)
+    },
 
-      return post
+    async setLiked(id, liked) {
+      const body = await request(`${postPath(id)}/like`, { method: liked ? 'PUT' : 'DELETE' })
+      return readPost(body, 200)
+    },
+
+    async setFavorited(id, favorited) {
+      const body = await request(`${postPath(id)}/favorite`, {
+        method: favorited ? 'PUT' : 'DELETE',
+      })
+      return readPost(body, 200)
     },
   }
 }
