@@ -4,6 +4,8 @@
 
 没有框架、没有构建步骤、没有外部资源依赖，双击 `index.html` 就能用。
 
+> 基于 Node.js + Vue 3 + Pinia + TypeScript 的 TDD 重写版见 [`pulse-vue/`](pulse-vue/README.md)。该版本增加了 Hono REST API 与内存存储后端，动态数据保存在服务端，不再使用 Local Storage（两版数据因此不再互通）。
+
 ## 功能
 
 - **发布**：多行输入，280 字上限，实时字数统计，空内容或超长时发布按钮自动禁用
@@ -21,6 +23,7 @@
 ├── index.html   # 页面结构
 ├── style.css    # 深色玻璃拟态设计系统与响应式样式
 ├── app.js       # 存储、渲染、交互逻辑
+├── pulse-vue/   # Vue 3 + Pinia + TypeScript 前端 + Hono 内存存储后端（独立工程）
 └── README.md
 ```
 
